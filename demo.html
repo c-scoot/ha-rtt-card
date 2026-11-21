@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Realtime Trains Card preview</title></head>
+<body>
+  <main>
+    <header><div><p class="eyebrow">HOME ASSISTANT · COMPANION CARD</p><h1>Realtime Trains</h1><p>Interactive preview with simulated train data.</p></div>
+      <div class="controls"><button id="theme">Switch theme</button><button id="confirm">Confirm first platform</button><button id="reset">Reset demo</button></div>
+    </header>
+    <div class="layout"><section><rtt-card id="card"></rtt-card><p id="event" aria-live="polite">Select a train to preview its more-info action.</p></section>
+    <aside><h2>Card settings</h2><rtt-card-editor id="editor"></rtt-card-editor><p class="note">This preview uses fixtures. It makes no RTT or Home Assistant API requests.</p></aside></div>
+  </main><script type="module" src="/demo/main.ts"></script>
+</body></html>

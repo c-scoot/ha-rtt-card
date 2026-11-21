@@ -1,0 +1,7 @@
+node_modules/
+dist/*.map
+coverage/
+.vite/
+artifacts/
+.pnpm-store/
+release/
