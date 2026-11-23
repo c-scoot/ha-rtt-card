@@ -43,18 +43,26 @@ function parseTrain(value: unknown, index: number): TrainConfig {
 }
 
 export function parseConfig(input: unknown): RttCardConfig {
-  if (!isObject(input) || !Array.isArray(input.trains)) {
+  if (!isObject(input)) {
     throw new Error("Set trains to a list of tracked status entities.");
   }
   if (typeof input.type !== "string" || !input.type.trim()) {
     throw new Error("The card type is required.");
   }
+  const mode = input.mode === undefined ? "selected" : input.mode;
+  if (mode !== "all" && mode !== "selected") {
+    throw new Error('Mode must be "all" or "selected".');
+  }
+  const rawTrains = input.trains === undefined && mode === "all" ? [] : input.trains;
+  if (!Array.isArray(rawTrains)) {
+    throw new Error("Set trains to a list of tracked status entities.");
+  }
   const title = optionalText(input.title, "Card title");
-  const trains = input.trains.map(parseTrain);
+  const trains = rawTrains.map(parseTrain);
   if (new Set(trains.map((train) => train.entity)).size !== trains.length) {
     throw new Error("Each tracked status entity can appear only once.");
   }
-  const config: RttCardConfig = { ...input, type: input.type, trains };
+  const config: RttCardConfig = { ...input, type: input.type, mode, trains };
   if (title) config.title = title;
   else delete config.title;
   return config;

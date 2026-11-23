@@ -14,15 +14,20 @@ describe('card configuration', () => {
       ],
     };
 
-    expect(parseConfig(config)).toEqual(config);
+    expect(parseConfig(config)).toEqual({ ...config, mode: 'selected' });
   });
 
-  it('accepts an empty train list for an unconfigured card', () => {
-    expect(parseConfig({ type, trains: [] }).trains).toEqual([]);
+  it('keeps an explicitly empty legacy selection', () => {
+    expect(parseConfig({ type, trains: [] })).toEqual({ type, mode: 'selected', trains: [] });
+  });
+
+  it('allows automatic mode without a stored train list', () => {
+    expect(parseConfig({ type, mode: 'all' })).toEqual({ type, mode: 'all', trains: [] });
   });
 
   it.each([
     ['a missing config', undefined],
+    ['an unsupported mode', { type, mode: 'manual', trains: [] }],
     ['a train mapping in place of a list', { type, trains: { entity: 'sensor.inbound_status' } }],
     ['a non-mapping train', { type, trains: ['sensor.inbound_status'] }],
     ['a missing anchor', { type, trains: [{ name: 'Inbound' }] }],

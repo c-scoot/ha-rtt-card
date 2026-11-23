@@ -15,6 +15,12 @@ try {
   const errors=[];page.on('pageerror',error=>errors.push(error.message));
   await page.goto('http://127.0.0.1:5174/demo.html');
   await page.locator('rtt-card button').first().waitFor();
+  const rows=page.locator('rtt-card li');
+  const initialCount=await rows.count();
+  await page.locator('#monitor').click();
+  await page.waitForFunction(count=>document.querySelector('rtt-card').shadowRoot.querySelectorAll('li').length===count,initialCount+1);
+  await page.locator('#monitor').click();
+  await page.waitForFunction(count=>document.querySelector('rtt-card').shadowRoot.querySelectorAll('li').length===count,initialCount);
   await mkdir('artifacts',{recursive:true});
   await page.screenshot({path:'artifacts/preview-desktop.png',fullPage:true});
   await page.locator('rtt-card').screenshot({path:'artifacts/card-desktop.png'});
@@ -25,17 +31,24 @@ try {
   await page.waitForFunction(()=>document.querySelector('rtt-card').shadowRoot.textContent.includes('Platform 6 · Confirmed'));
   await page.locator('#theme').click();
   await page.screenshot({path:'artifacts/preview-dark.png',fullPage:true});
-  await page.locator('rtt-card button').first().click();
+  await page.locator('rtt-card').getByRole('button',{name:/London Waterloo/}).click();
   if(!(await page.locator('#event').innerText()).includes('sensor.waterloo_status')) throw new Error('More info event failed');
+  const snapshot=await page.locator('rtt-card').evaluate(card=>card.hass);
+  await page.locator('#advance').click();
+  await page.waitForFunction(()=>!document.querySelector('rtt-card').shadowRoot.textContent.includes('Next weekly target'));
   // The actual shipped module must load independently of the development source.
   await page.route('**/bundle-check',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><head><title>Bundle check</title></head><body></body></html>'}));
   await page.goto('http://127.0.0.1:5174/bundle-check');
-  await page.evaluate(async()=>{
+  await page.evaluate(async snapshot=>{
     await import('/dist/rtt-card.js');
     const card=document.createElement('rtt-card');card.setConfig({type:'custom:rtt-card',trains:[]});document.body.append(card);
     await card.updateComplete;
     if(!card.shadowRoot.textContent.includes('Add a train')) throw new Error('Production bundle did not render');
-  });
+    card.setConfig({type:'custom:rtt-card',mode:'all'});card.hass=snapshot;
+    await card.updateComplete;
+    if(card.shadowRoot.querySelectorAll('li').length!==6) throw new Error('Production automatic discovery failed');
+    if(!card.shadowRoot.textContent.includes('Next weekly target')) throw new Error('Production weekly hint missing');
+  },snapshot);
   if(errors.length) throw new Error(errors.join('\n'));
-  console.log('Browser checks passed: mobile overflow, platform update, dark theme, more-info; screenshots in artifacts/.');
+  console.log('Browser checks passed: automatic add/remove, weekly rollover, mobile overflow, platform update, dark theme, more-info, standalone production bundle; screenshots in artifacts/.');
 } finally {await browser?.close();await server.close();}

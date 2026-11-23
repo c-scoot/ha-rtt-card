@@ -2,6 +2,7 @@ import {
   sensorRoles,
   type Hass,
   type RegistryEntity,
+  type RttCardConfig,
   type SensorRole,
   type TrackView,
   type TrainConfig,
@@ -45,7 +46,10 @@ function registryIndex(hass: Hass, full?: readonly RegistryEntity[]): RegistryIn
 function isStatus(entry: RegistryEntity): boolean {
   if (entry.platform !== integration || !entry.entity_id.startsWith("sensor.")) return false;
   if (entry.translation_key) return entry.translation_key === "status";
-  return entry.unique_id?.endsWith("_status") === true;
+  // Platform certainty has its own *_platform_status sensor. It is not a
+  // monitored call, including when older registry metadata has no role key.
+  return entry.unique_id?.endsWith("_status") === true
+    && !entry.unique_id.endsWith("_platform_status");
 }
 
 export function discoverTracks(hass: Hass, registry?: readonly RegistryEntity[]): TrainConfig[] {
@@ -56,6 +60,27 @@ export function discoverTracks(hass: Hass, registry?: readonly RegistryEntity[])
     }
   }
   return tracks.sort((a, b) => a.entity.localeCompare(b.entity));
+}
+
+/** Resolve the display list on each HA update, without saving discovered IDs. */
+export function resolveTrains(hass: Hass, config: RttCardConfig): TrainConfig[] {
+  if (config.mode !== "all") return config.trains;
+  const overrides = new Map(config.trains.map((train) => [train.entity, train]));
+  return discoverTracks(hass)
+    .map((train) => overrides.get(train.entity) ?? train)
+    .map((train) => ({
+      train,
+      // Offset-aware scheduled times sort distinct dated calls correctly,
+      // including retained results and recurring trackers after a rollover.
+      scheduled: Date.parse(getTrack(hass, train).scheduled ?? ""),
+    }))
+    .sort((a, b) => {
+      const aTime = Number.isFinite(a.scheduled) ? a.scheduled : Infinity;
+      const bTime = Number.isFinite(b.scheduled) ? b.scheduled : Infinity;
+      return (aTime === bTime ? 0 : aTime - bTime)
+        || a.train.entity.localeCompare(b.train.entity);
+    })
+    .map(({ train }) => train);
 }
 
 function siblingRole(entry: RegistryEntity, prefix: string | undefined): SensorRole | undefined {
@@ -147,6 +172,9 @@ export function getTrack(hass: Hass, train: TrainConfig, registry?: readonly Reg
     status,
     availability: !entity ? "missing" : entity.state === "unavailable" ? "unavailable" : status ? "available" : "unknown",
     terminal: attributes.terminal === true,
+    repeatWeekly: attributes.repeat_weekly === true,
+    weeklyState: textValue(attributes.weekly_state),
+    weeklyNextScheduled: instant(attributes.weekly_next_scheduled),
     stale: typeof attributes.stale === "boolean" ? attributes.stale : null,
     scheduled: instant(read("scheduled")),
     expected: instant(read("expected")),

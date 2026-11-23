@@ -35,11 +35,12 @@ function reset() {
     ['basingstoke','Basingstoke','departure','departed','16:10',null,'3','actual',false],
     ['winchester','Winchester','arrival','unavailable','18:40',null,null,null,false],
   ] as const;
-  config = {type:'custom:rtt-card',title:'Trains at home',trains:[]};
+  config = {type:'custom:rtt-card',title:'Trains at home',mode:'all',trains:[]};
   for (const [id,name,direction,status,time,expected,platform,source,stale] of cases) {
     const deviceId = `track_${id}`;
     const entity = `sensor.${id}_status`;
-    const attrs = {direction,station:'GB-NR:BSK',stale,terminal:['cancelled','departed'].includes(status),platform_source:source};
+    const attrs = {direction,station:'GB-NR:BSK',stale,terminal:['cancelled','departed'].includes(status),platform_source:source,
+      repeat_weekly:id==='basingstoke',weekly_state:id==='basingstoke'?'waiting':'off',weekly_next_scheduled:id==='basingstoke'?new Date(Date.parse(stamp(time))+7*86400000).toISOString():null};
     hass.devices![deviceId] = {id:deviceId,name};
     const values: Record<string,string> = {status,scheduled:stamp(time),expected:expected ? stamp(expected) : 'unknown',actual:status==='departed'?stamp('16:12'):'unknown',platform:platform??'unknown',delay_minutes:status==='delayed'?'8':status==='departed'?'2':'0',last_success:stamp(stale?'17:20':'17:40')};
     for (const [role,value] of Object.entries(values)) {
@@ -47,9 +48,9 @@ function reset() {
       hass.states[entityId]={entity_id:entityId,state:value,attributes:{...attrs,friendly_name:`${name} ${role}`}} satisfies HassEntity;
       hass.entities![entityId]={entity_id:entityId,device_id:deviceId,platform:'realtime_trains',translation_key:role};
     }
-    config.trains.push({entity,name});
   }
   card.setConfig(config);editor.setConfig(config);card.hass=hass;editor.hass=hass;
+  document.querySelector('#monitor')!.textContent='Add monitored train';
 }
 reset();
 document.querySelector('#theme')!.addEventListener('click',()=>{
@@ -61,6 +62,35 @@ document.querySelector('#confirm')!.addEventListener('click',()=>{
   const id='sensor.waterloo_platform';
   hass={...hass,states:{...hass.states,[id]:{...hass.states[id],state:'6',attributes:{...hass.states[id].attributes,platform_source:'actual'}}}};
   card.hass=hass;editor.hass=hass;
+});
+document.querySelector('#monitor')!.addEventListener('click',()=>{
+  const states={...hass.states};const entities={...hass.entities};const devices={...hass.devices};
+  const exists=!!states['sensor.woking_status'];
+  if(exists) {
+    for(const id of Object.keys(states).filter(id=>id.startsWith('sensor.woking_'))) {delete states[id];delete entities[id];}
+    delete devices.track_woking;
+  } else {
+    // A second station, delivered as an ordinary HA registry/state update.
+    devices.track_woking={id:'track_woking',name:'Weekly · Woking · Mon 18:50 · arrival'};
+    for(const role of ['status','scheduled','platform']) {
+      const id=`sensor.woking_${role}`;
+      states[id]={entity_id:id,state:role==='status'?'scheduled':role==='platform'?'unknown':new Date(Date.now()+3600000).toISOString(),attributes:{station:'GB-NR:WOK',direction:'arrival',repeat_weekly:true,weekly_state:'tracking',stale:false}};
+      entities[id]={entity_id:id,device_id:'track_woking',platform:'realtime_trains',translation_key:role};
+    }
+  }
+  hass={...hass,states,entities,devices};card.hass=hass;editor.hass=hass;
+  document.querySelector('#monitor')!.textContent=exists?'Add monitored train':'Remove monitored train';
+});
+document.querySelector('#advance')!.addEventListener('click',()=>{
+  const states={...hass.states};const status=states['sensor.basingstoke_status'];
+  if(!status.attributes.terminal) return;
+  const next=String(status.attributes.weekly_next_scheduled);
+  for(const role of ['status','scheduled','expected','actual','platform','delay_minutes']) {
+    const id=`sensor.basingstoke_${role}`;
+    const current=states[id];
+    states[id]={...current,state:role==='status'?'scheduled':role==='scheduled'?next:'unknown',attributes:{...current.attributes,terminal:false,weekly_state:'tracking',platform_source:null,platform_status:'not_available',weekly_next_scheduled:null}};
+  }
+  hass={...hass,states};card.hass=hass;editor.hass=hass;
 });
 editor.addEventListener('config-changed',(event)=>{
   config=(event as CustomEvent<{config:RttCardConfig}>).detail.config;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { discoverTracks, formatDate, formatTime, getTrack } from '../src/data';
+import { parseConfig } from '../src/config';
+import { discoverTracks, formatDate, formatTime, getTrack, resolveTrains } from '../src/data';
 import type { Hass, RegistryEntity } from '../src/types';
 
 const arrival = { entity: 'sensor.inbound_status' };
@@ -105,6 +106,65 @@ describe('entity relationships', () => {
     );
 
     expect(getTrack(hass, arrival, [...callRegistry, duplicatePlatform])).toMatchObject({ platform: null, platformSource: null });
+  });
+});
+
+describe('train selection modes', () => {
+  it('orders discovered station calls by their scheduled instant and places unknown times last', () => {
+    const early = 'sensor.z_clapham_departure';
+    const later = 'sensor.a_waterloo_arrival';
+    const unknown = 'sensor.aa_earlsfield_departure';
+    const earlyScheduled = 'sensor.clapham_schedule';
+    const laterScheduled = 'sensor.waterloo_schedule';
+    const hass = homeAssistant(
+      state(early, 'scheduled', { station: 'Clapham Junction', service_identity: serviceIdentity }),
+      state(later, 'scheduled', { station: 'Waterloo', service_identity: serviceIdentity }),
+      state(unknown, 'scheduled', { station: 'Earlsfield', service_identity: serviceIdentity }),
+      state(earlyScheduled, '2026-11-21T01:15:00+01:00'),
+      state(laterScheduled, '2026-11-21T00:30:00Z'),
+    );
+    hass.entities = Object.fromEntries([
+      registryEntity(early, 'clapham', { translation_key: 'status' }),
+      registryEntity(later, 'waterloo', { translation_key: 'status' }),
+      registryEntity(unknown, 'earlsfield', { translation_key: 'status' }),
+      registryEntity(earlyScheduled, 'clapham', { translation_key: 'scheduled' }),
+      registryEntity(laterScheduled, 'waterloo', { translation_key: 'scheduled' }),
+    ].map((entry) => [entry.entity_id, entry]));
+    const options = { entity: later, name: 'My Waterloo arrival', sensors: { platform: 'sensor.my_platform' } };
+    const config = parseConfig({
+      type: 'custom:rtt-card', mode: 'all', trains: [options, { entity: 'sensor.deleted_train_status' }],
+    });
+
+    expect(resolveTrains(hass, config)).toEqual([{ entity: early }, options, { entity: unknown }]);
+  });
+
+  it('discovers running status without creating rows for platform or weekly status sensors', () => {
+    const platformStatus = 'sensor.renamed_platform_certainty';
+    const weeklyState = 'sensor.renamed_weekly_tracking';
+    const weeklyScheduled = 'sensor.renamed_weekly_schedule';
+    const hass = homeAssistant(
+      state(arrival.entity, 'scheduled'),
+      state(platformStatus, 'planned'),
+      state(weeklyState, 'tracking'),
+      state(weeklyScheduled, '2026-11-27T18:00:00Z'),
+    );
+    hass.entities = Object.fromEntries([
+      registryEntity(arrival.entity, 'arrival', { unique_id: 'entry_track_status' }),
+      registryEntity(platformStatus, 'arrival', { unique_id: 'entry_track_platform_status' }),
+      registryEntity(weeklyState, 'arrival', { translation_key: 'weekly_state' }),
+      registryEntity(weeklyScheduled, 'arrival', { translation_key: 'weekly_next_scheduled' }),
+    ].map((entry) => [entry.entity_id, entry]));
+
+    expect(resolveTrains(hass, parseConfig({ type: 'custom:rtt-card', mode: 'all' }))).toEqual([arrival]);
+  });
+
+  it('preserves selected order and keeps a missing configured status entity', () => {
+    const hass = homeAssistant(state(arrival.entity, 'scheduled'));
+    const trains = [departure, arrival];
+    const config = parseConfig({ type: 'custom:rtt-card', trains });
+
+    expect(resolveTrains(hass, config)).toEqual(trains);
+    expect(getTrack(hass, departure).availability).toBe('missing');
   });
 });
 

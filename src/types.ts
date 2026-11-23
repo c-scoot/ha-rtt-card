@@ -18,6 +18,7 @@ export interface TrainConfig {
 export interface RttCardConfig {
   type: string;
   title?: string;
+  mode?: "all" | "selected";
   trains: TrainConfig[];
   [key: string]: unknown;
 }
@@ -65,6 +66,9 @@ export interface TrackView {
   status: string | null;
   availability: "available" | "unavailable" | "missing" | "unknown";
   terminal: boolean;
+  repeatWeekly: boolean;
+  weeklyState: string | null;
+  weeklyNextScheduled: string | null;
   stale: boolean | null;
   scheduled: string | null;
   expected: string | null;

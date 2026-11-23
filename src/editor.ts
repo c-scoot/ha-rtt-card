@@ -1,7 +1,7 @@
 import { LitElement, css, html, nothing } from 'lit';
 import { repeat } from 'lit/directives/repeat.js';
 import { parseConfig } from './config';
-import { discoverTracks, getTrack } from './data';
+import { discoverTracks, getTrack, resolveTrains } from './data';
 import type { Hass, RttCardConfig, TrainConfig } from './types';
 
 export class RttCardEditor extends LitElement {
@@ -25,9 +25,36 @@ export class RttCardEditor extends LitElement {
   }
 
   protected render() {
-    const { config, hass } = this;
+    const { config } = this;
     if (!config) return nothing;
 
+    return html`
+      <label>
+        Card title
+        <input type="text" placeholder="Realtime Trains" .value=${config.title ?? ''} @change=${this.changeTitle}>
+      </label>
+      <label>
+        Trains to show
+        <select name="mode" .value=${config.mode ?? 'selected'} @change=${this.changeMode}>
+          <option value="all">All monitored trains</option>
+          <option value="selected">Selected trains</option>
+        </select>
+      </label>
+      ${config.mode === 'all' ? html`<p>${this.allTrainsSummary(config)}</p>` : this.renderSelectedTrains(config)}
+    `;
+  }
+
+  private allTrainsSummary(config: RttCardConfig) {
+    const { hass } = this;
+    if (!hass) return 'Waiting for Home Assistant…';
+    if (!hass.entities) return 'Train discovery is unavailable. Choose Selected trains and enter status entity IDs in YAML.';
+    const count = resolveTrains(hass, config).length;
+    if (!count) return 'No monitored trains found. Add a tracked train in the Realtime Trains integration.';
+    return `${count} monitored ${count === 1 ? 'train' : 'trains'}. Sorted by scheduled time. The card updates as you add or remove tracked trains.${config.trains.length ? ' Switch back to Selected trains to edit your saved list and names.' : ''}`;
+  }
+
+  private renderSelectedTrains(config: RttCardConfig) {
+    const { hass } = this;
     const selected = new Set(config.trains.map((train) => train.entity));
     const options = hass
       ? discoverTracks(hass)
@@ -37,11 +64,6 @@ export class RttCardEditor extends LitElement {
       : [];
 
     return html`
-      <label>
-        Card title
-        <input type="text" placeholder="Realtime Trains" .value=${config.title ?? ''} @change=${this.changeTitle}>
-      </label>
-
       <fieldset>
         <legend>Tracked trains</legend>
         ${config.trains.length ? html`
@@ -53,7 +75,7 @@ export class RttCardEditor extends LitElement {
           <div class="add-train">
             <label>
               Train status sensor
-              <select .value=${this.selectedEntity} @change=${this.selectEntity}>
+              <select name="train" .value=${this.selectedEntity} @change=${this.selectEntity}>
                 <option value="">Select a train</option>
                 ${options.map(({ entity, title }) => html`<option value=${entity}>${title} (${entity})</option>`)}
               </select>
@@ -95,6 +117,14 @@ export class RttCardEditor extends LitElement {
     if (!this.config) return;
     const title = (event.currentTarget as HTMLInputElement).value.trim();
     this.publish({ ...this.config, title: title || undefined });
+  }
+
+  private changeMode(event: Event) {
+    if (!this.config) return;
+    const mode = (event.currentTarget as HTMLSelectElement).value;
+    if (mode !== 'all' && mode !== 'selected') return;
+    this.selectedEntity = '';
+    this.publish({ ...this.config, mode });
   }
 
   private changeName(entity: string, event: Event) {

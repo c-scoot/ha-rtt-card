@@ -1,7 +1,7 @@
 import { LitElement, css, html, nothing } from 'lit';
 import { repeat } from 'lit/directives/repeat.js';
 import { parseConfig } from './config';
-import { discoverTracks, formatDate, formatTime, getTrack } from './data';
+import { formatDate, formatTime, getTrack, resolveTrains } from './data';
 import './editor';
 import type { Hass, RttCardConfig, TrackView } from './types';
 
@@ -12,6 +12,14 @@ const STATUS_TONES = new Map([
   ['scheduled', 'info'],
   ['delayed', 'warning'], ['unconfirmed', 'warning'], ['diverted', 'warning'], ['no_report', 'warning'],
   ['cancelled', 'error'],
+]);
+const WEEKLY_LABELS = new Map([
+  ['waiting', 'Waiting for next train'],
+  ['no_match', 'No matching weekly train'],
+  ['rate_limited', 'Weekly lookup rate limited'],
+  ['request_failed', 'Weekly lookup failed'],
+  ['invalid_auth', 'Weekly lookup needs authentication'],
+  ['missing_match', 'Weekly match details missing'],
 ]);
 
 function timeDetail(label: string, iso: string | null, hass: Hass, referenceDate: string) {
@@ -34,12 +42,8 @@ export class RttCard extends LitElement {
     return document.createElement('rtt-card-editor');
   }
 
-  static getStubConfig(hass?: Hass, entities: string[] = [], entitiesFallback: string[] = []) {
-    const tracks = hass ? discoverTracks(hass) : [];
-    const preferred = [...entities, ...entitiesFallback]
-      .map((entity) => tracks.find((train) => train.entity === entity))
-      .find((train) => train !== undefined);
-    return { trains: preferred ? [preferred] : tracks.slice(0, 1) };
+  static getStubConfig() {
+    return { mode: 'all' as const, trains: [] };
   }
 
   setConfig(config: unknown) {
@@ -51,26 +55,39 @@ export class RttCard extends LitElement {
   }
 
   getCardSize() {
-    const rowCount = Math.max(this.config?.trains.length ?? 0, 1);
-    return Math.ceil((56 + rowCount * 72) / 50);
+    const { config, hass } = this;
+    const rowCount = config && hass
+      ? resolveTrains(hass, config).length
+      : config?.mode === 'selected' ? config.trains.length : 0;
+    return Math.ceil((56 + Math.max(rowCount, 1) * 72) / 50);
   }
 
   protected render() {
     const { config, hass } = this;
     if (!config) return nothing;
+    const trains = hass ? resolveTrains(hass, config) : [];
 
     return html`
       <ha-card>
         <h2>${config.title ?? CARD_NAME}</h2>
-        ${config.trains.length && hass
+        ${trains.length && hass
           ? html`<ul role="list">
-              ${repeat(config.trains, (train) => train.entity, (train) => this.renderTrack(getTrack(hass, train), hass))}
+              ${repeat(trains, (train) => train.entity, (train) => this.renderTrack(getTrack(hass, train), hass))}
             </ul>`
-          : html`<p class="empty">${config.trains.length
-              ? 'Waiting for Home Assistant…'
-              : 'Add a train status sensor in the card editor.'}</p>`}
+          : html`<p class="empty">${this.emptyMessage(config, hass)}</p>`}
       </ha-card>
     `;
+  }
+
+  private emptyMessage(config: RttCardConfig, hass?: Hass) {
+    if (config.mode === 'all') {
+      if (!hass) return 'Waiting for Home Assistant…';
+      if (!hass.entities) return 'Train discovery is unavailable. Choose Selected trains and enter status entity IDs in YAML.';
+      return 'No monitored trains found. Add a tracked train in the Realtime Trains integration.';
+    }
+    return config.trains.length
+      ? 'Waiting for Home Assistant…'
+      : 'Add a train status sensor in the card editor.';
   }
 
   private renderTrack(track: TrackView, hass: Hass) {
@@ -119,8 +136,23 @@ export class RttCard extends LitElement {
             ${date ? html`<span>${date}</span>` : nothing}
             ${lastUpdated ? html`<span>Last updated <time datetime=${track.lastSuccess!}>${lastUpdated}</time></span>` : nothing}
           </span>
+          ${this.renderWeeklyHint(track, hass)}
         </button>
       </li>
+    `;
+  }
+
+  private renderWeeklyHint(track: TrackView, hass: Hass) {
+    const state = track.weeklyState;
+    const activeHint = state && state !== 'off' && state !== 'tracking';
+    if (!track.repeatWeekly || (!track.terminal && !activeHint)) return nothing;
+
+    const label = (state && WEEKLY_LABELS.get(state)) || (track.terminal ? 'Waiting for next train' : 'Weekly repeat');
+    return html`
+      <span class="details weekly">
+        <span>${label}</span>
+        ${timeDetail('Next weekly target', track.weeklyNextScheduled, hass, '')}
+      </span>
     `;
   }
 
@@ -203,6 +235,11 @@ export class RttCard extends LitElement {
       overflow-wrap: anywhere;
       align-items: baseline;
       line-height: 1.4;
+    }
+
+    .weekly {
+      padding-inline-start: 7px;
+      border-inline-start: 2px solid var(--divider-color, #dadce0);
     }
 
     .summary {

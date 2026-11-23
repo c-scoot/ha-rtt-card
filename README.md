@@ -1,29 +1,48 @@
 # Realtime Trains Card
 
-A compact Home Assistant dashboard card for the [Realtime Trains integration](https://github.com/c-scoot/ha-rtt). Shows selected, dated station arrivals and departures, their reported status, scheduled/expected/actual times, delay, platform certainty, and stale readings.
+A compact Home Assistant dashboard card for the [Realtime Trains integration](https://github.com/c-scoot/ha-rtt). Shows monitored, dated station arrivals and departures, their reported status, scheduled/expected/actual times, delay, platform certainty, and stale readings.
 
-Version **0.1.0** is the first release. Automated and browser checks use simulated Home Assistant data; installation on a live HA dashboard has not yet been verified.
+Version **0.2.0** adds **All monitored trains**, multiple-station discovery, and weekly repeat hints. Automated and browser checks use simulated Home Assistant data; installation on a live HA dashboard has not yet been verified.
 
 ![Realtime Trains card with simulated train data](docs/preview.png)
 
 ## Install with HACS
 
-Add `https://github.com/c-scoot/ha-rtt-card` as a **custom repository** in HACS, category **Dashboard**, and download **Realtime Trains Card**. Reload the dashboard and add **Realtime Trains** from the card picker. Select the train status sensors you want to display. Default-store listing is a separate submission and is not implied. HACS installation remains to be field-tested.
+Add `https://github.com/c-scoot/ha-rtt-card` as a **custom repository** in HACS, category **Dashboard**, and download **Realtime Trains Card**. Reload the dashboard and add **Realtime Trains** from the card picker. New cards show **All monitored trains** automatically. Choose **Selected trains** to set your own list and order. Default-store listing is a separate submission and is not implied. HACS installation remains to be field-tested.
 
 ## Install manually
 
 1. Install and configure the Realtime Trains integration, then select trains in its Configure menu.
 2. Download `rtt-card.js` from [the latest release](https://github.com/c-scoot/ha-rtt-card/releases/latest), or use `dist/rtt-card.js` from this project, and copy it into `www/rtt-card.js` in your Home Assistant configuration directory. Create `www` if needed.
-3. In dashboard Resources, add `/local/rtt-card.js?v=0.1.0` with type **JavaScript module**. Resources may require Advanced Mode in your HA user profile. If using YAML dashboard resources, declare the same URL as a module there.
-4. Reload the dashboard, add **Realtime Trains** from the card picker, and choose the monitored status sensors. Use the editor to set a title, train names, and display order.
+3. In dashboard Resources, add `/local/rtt-card.js?v=0.2.0` with type **JavaScript module**. Resources may require Advanced Mode in your HA user profile. If using YAML dashboard resources, declare the same URL as a module there.
+4. Reload the dashboard and add **Realtime Trains** from the card picker. Leave **Trains to show → All monitored trains** enabled, or switch to **Selected trains** to set your own list, names, and order.
 
 The card reads `hass.states`, `hass.entities`, and `hass.devices`. It makes no direct network calls and needs no RTT credentials. It targets the integration's HA 2025.8+ contract; the local build uses modern browser JavaScript.
 
 ## Configuration
 
+### All monitored trains
+
 ```yaml
 type: custom:rtt-card
 title: Trains at home
+mode: all
+```
+
+The card follows the integration's current status sensors across all home stations. New monitored calls appear and removed trackers disappear when Home Assistant updates its entities. Rows sort by scheduled date/time, then entity ID; unknown dates appear last. Separate arrivals, departures, and calls at different stations stay separate, even for the same service. Unavailable sensors and retained final results remain visible while the integration retains them. Removing a home station alone does not remove its tracked trains.
+
+Weekly repeats use the same row as the integration rolls to the next occurrence; the card reads the new times/platform without carrying values from the previous trip. When waiting, it keeps the previous final result and shows the **Next weekly target** separately. That date is a lookup target, not a confirmed service match. The integration controls repeat scheduling and API requests.
+
+Automatic mode is the default when adding a new card. To upgrade an existing card, edit it and choose **Trains to show → All monitored trains**. Existing configurations without `mode` retain their explicit selection and order. Switching modes preserves saved selections, names, sensor mappings, and dashboard options. In automatic mode, saved names and mappings apply only to trackers still discovered; they cannot keep removed trackers on the card. Select **Selected trains** to edit the saved list.
+
+Discovery requires Home Assistant's entity registry metadata. If that is unavailable, use Selected trains with explicit YAML mappings below. The card does not guess entities from their names or call RTT to discover trains.
+
+### Selected trains
+
+```yaml
+type: custom:rtt-card
+title: Trains at home
+mode: selected
 trains:
   - entity: sensor.your_departure_status
     name: London Waterloo
@@ -33,7 +52,7 @@ trains:
 
 Replace the example entity IDs with your integration's **Status** sensors. The configured order is preserved. An empty `trains: []` is supported. Editing the card only changes its display; add or remove monitored services through the integration.
 
-Each tracked station call is one integration device. Companion sensors are matched by device and integration role, so renaming entity IDs does not break sibling lookup. Selecting a renamed status sensor still requires updating that anchor in the card config if HA has not updated the reference. The same service's arrival and departure remain separate rows.
+Each tracked station call is one integration device. Companion sensors are matched by device and integration role, so renaming entity IDs does not break sibling lookup. In selected mode a renamed status sensor still requires updating that anchor in the card config if HA has not updated the reference. Automatic mode follows the new status entity ID. The same service's arrival and departure remain separate rows.
 
 The default label is the integration device name, treated as opaque text. It can contain a platform captured when the train was selected. Set a display `name` for a concise route label and use the separate live platform label for the current reading.
 
@@ -75,7 +94,7 @@ pnpm build
 pnpm dev
 ```
 
-Open `http://127.0.0.1:5173/demo.html`. The preview has a visual editor, theme switch, and simulated platform confirmation. It does not connect to a live instance. `dist/rtt-card.js` is a self-contained ES module; Lit is bundled.
+Open `http://127.0.0.1:5173/demo.html`. The preview has a visual editor, theme switch, simulated platform confirmation, monitored-train add/remove, and weekly rollover controls. It does not connect to a live instance. `dist/rtt-card.js` is a self-contained ES module; Lit is bundled.
 
 For optional real-browser smoke checks, install Playwright or use a runtime with it bundled, then run `node scripts/browser-smoke.mjs`. Set `BROWSER_EXECUTABLE` to an installed Chromium/Edge executable if required. The script starts its own temporary local server and saves screenshots in `artifacts/`.
 
